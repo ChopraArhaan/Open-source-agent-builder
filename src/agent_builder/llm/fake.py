@@ -60,8 +60,8 @@ class FakeLLMProvider(BaseLLMProvider):
     ) -> LLMResponse:
         """Record the call and return the next scripted response."""
         self.call_history.append({
-            "messages": messages,
-            "tools": tools or [],
+            "messages": list(messages),
+            "tools": list(tools) if tools else [],
             "kwargs": kwargs,
         })
 
