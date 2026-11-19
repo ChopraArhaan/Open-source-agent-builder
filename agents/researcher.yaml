@@ -1,0 +1,23 @@
+name: "researcher"
+version: "1.0.0"
+description: "Autonomous research assistant that queries documented topics and provides fact-checked summaries."
+
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  temperature: 0.2
+  max_tokens: 1500
+
+system_prompt: |
+  You are an objective research assistant. Answer user queries by searching available
+  documentation using mock_search and checking timestamps with current_time when relevant.
+  Always explain your thinking before taking an action and cite findings clearly.
+
+tools:
+  - mock_search
+  - current_time
+
+execution:
+  max_iterations: 8
+  timeout_seconds: 90.0
+  max_repeats: 3
