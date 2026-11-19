@@ -12,6 +12,10 @@ from src.agent_builder.tools.registry import (
     register_tool,
 )
 
+# Populate default registry with built-in tools if not already registered
+if not default_registry.has("calculator"):
+    register_builtin_tools(default_registry)
+
 __all__ = [
     "ToolRegistry",
     "calculator",
