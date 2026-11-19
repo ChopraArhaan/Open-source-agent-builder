@@ -64,30 +64,23 @@ It provides everything you need to build, test, and serve autonomous agents with
 ```text
 open-source-agent-builder/
 ├── agents/                       # Declarative agent configurations (YAML)
-│   ├── web_researcher.yaml
-│   └── code_assistant.yaml
-├── src/
-│   ├── api/                      # FastAPI application layer
-│   │   ├── routes/               # API endpoints (run, stream, tools, agents)
-│   │   ├── dependencies.py       # Dependency injection
-│   │   └── server.py             # FastAPI entrypoint
-│   ├── core/                     # Agent execution core
-│   │   ├── engine.py             # ReAct loop implementation
-│   │   ├── memory.py             # Working memory & conversation buffer
-│   │   ├── parser.py             # Thought/Action parsing & tool-call handling
-│   │   └── state.py              # Execution state models
-│   ├── llm/                      # Unified LLM provider interface
-│   │   ├── base.py               # Abstract provider interface
-│   │   ├── openai_provider.py
-│   │   ├── anthropic_provider.py
-│   │   └── gemini_provider.py
+│   ├── math_tutor.yaml
+│   └── researcher.yaml
+├── src/agent_builder/
+│   ├── models.py                 # Core domain models (ToolSpec, ToolResult, RunEvent)
 │   ├── tools/                    # Tool registry and built-in tools
-│   │   ├── registry.py           # Dynamic tool decorator & registry
-│   │   ├── builtins/             # Default tools (web search, calculator, etc.)
-│   │   └── sandbox.py            # Execution wrapper & safe sandbox
-│   └── utils/
-│       ├── config.py             # Global application configuration
-│       └── logger.py             # Structured telemetry & logging
+│   │   ├── registry.py           # ToolRegistry & @register_tool decorator
+│   │   └── builtins.py           # Safe AST calculator, current_time, mock_search
+│   ├── llm/                      # Unified LLM provider interface
+│   │   ├── base.py               # BaseLLMProvider abstract interface
+│   │   ├── openai.py             # OpenAI-compatible httpx provider
+│   │   └── fake.py               # Scriptable offline test provider
+│   ├── engine/                   # ReAct execution core
+│   │   └── react.py              # Raw ReAct execution loop & RunEvent stream
+│   ├── config/                   # Declarative configuration system
+│   │   ├── schema.py             # Pydantic v2 AgentConfig, LLMConfig, ExecutionConfig
+│   │   └── loader.py             # YAML loader, agents/ scanner, and engine builder
+│   └── api/                      # FastAPI application layer (Phase 5)
 ├── tests/                        # Comprehensive unit & integration tests
 ├── .env.example                  # Environment variable template
 ├── pyproject.toml                # Project metadata & dependencies
@@ -170,12 +163,12 @@ curl -X POST "http://localhost:8000/api/v1/agents/market-analyst/run" \
 ## 🛣️ Roadmap
 
 - [x] Architecture design & project spec
-- [ ] Core ReAct execution loop & state engine
-- [ ] Pydantic tool registry with JSON Schema export
-- [ ] Unified LLM Gateway (OpenAI, Gemini, Anthropic)
-- [ ] Declarative YAML parser & validator
-- [ ] FastAPI service with REST & SSE endpoints
-- [ ] Agent memory store (in-memory + persistent SQLite)
+- [x] Pydantic tool registry with JSON Schema export (Phase 1)
+- [x] Unified LLM Gateway & Fake test provider (Phase 2)
+- [x] Core ReAct execution loop & event stream (Phase 3)
+- [x] Declarative YAML parser & validator (Phase 4)
+- [ ] FastAPI service with REST & SSE endpoints (Phase 5)
+- [ ] Multi-provider expansions (Anthropic, Gemini)
 - [ ] Interactive Web UI / Playground
 
 ---
