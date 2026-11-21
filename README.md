@@ -148,14 +148,14 @@ async def web_search(query: str, max_results: int = 5) -> str:
 pip install -r requirements.txt
 
 # Start the server
-uvicorn src.api.server:app --reload --port 8000
+uvicorn src.agent_builder.api.app:app --reload --port 8000
 ```
 
 #### Run an Agent Request:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/agents/market-analyst/run" \
+curl -X POST "http://localhost:8000/agents/math-tutor/run" \
      -H "Content-Type: application/json" \
-     -d '{"prompt": "Analyze the revenue growth of NVIDIA over the last 3 quarters"}'
+     -d '{"prompt": "Calculate (25 * 4) + 50"}'
 ```
 
 ---
@@ -167,7 +167,7 @@ curl -X POST "http://localhost:8000/api/v1/agents/market-analyst/run" \
 - [x] Unified LLM Gateway & Fake test provider (Phase 2)
 - [x] Core ReAct execution loop & event stream (Phase 3)
 - [x] Declarative YAML parser & validator (Phase 4)
-- [ ] FastAPI service with REST & SSE endpoints (Phase 5)
+- [x] FastAPI service with REST & SSE endpoints (Phase 5)
 - [ ] Multi-provider expansions (Anthropic, Gemini)
 - [ ] Interactive Web UI / Playground
 
