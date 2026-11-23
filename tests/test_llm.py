@@ -258,3 +258,98 @@ def test_create_llm_provider_factory():
 
     with pytest.raises(ValueError, match="Unsupported LLM provider: 'unsupported'"):
         create_llm_provider("unsupported", model="xyz")
+
+
+def test_openai_usage_normalization_openrouter_shape():
+    """Verify OpenAIProvider normalizes OpenRouter-shaped usage (nested dicts, float costs) into flat int dict."""
+    openrouter_payload = {
+        "id": "gen-12345",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Result from OpenRouter",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 18,
+            "total_tokens": 60,
+            "prompt_tokens_details": {
+                "cached_tokens": 10,
+            },
+            "completion_tokens_details": {
+                "reasoning_tokens": 5,
+            },
+            "cost_details": {
+                "upstream_inference_cost": 0.00012,
+            },
+            "total_cost": 0.00015,
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=openrouter_payload)
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenAIProvider(api_key="mock-openrouter-key", http_client=mock_client)
+
+    async def _run():
+        resp = await provider.complete([LLMMessage(role="user", content="Hello")])
+        assert resp.content == "Result from OpenRouter"
+        # Only integer token fields must be extracted
+        assert resp.usage == {
+            "prompt_tokens": 42,
+            "completion_tokens": 18,
+            "total_tokens": 60,
+        }
+        # Raw payload must be preserved in full for debugging
+        assert resp.raw == openrouter_payload
+        assert resp.raw["usage"]["total_cost"] == 0.00015
+        assert resp.raw["usage"]["prompt_tokens_details"] == {"cached_tokens": 10}
+
+    asyncio.run(_run())
+
+
+def test_openai_usage_normalization_flat_and_missing():
+    """Verify OpenAIProvider handles standard flat usage and missing/null usage payloads."""
+    # 1. Standard flat OpenAI usage
+    flat_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "Flat answer"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    client_flat = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=flat_payload)))
+    p_flat = OpenAIProvider(api_key="key", http_client=client_flat)
+
+    # 2. Null/missing usage
+    none_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "No usage"}, "finish_reason": "stop"}],
+        "usage": None,
+    }
+    client_none = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=none_payload)))
+    p_none = OpenAIProvider(api_key="key", http_client=client_none)
+
+    # 3. Usage with only floats / non-tokens
+    cost_only_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "Cost only"}, "finish_reason": "stop"}],
+        "usage": {"total_cost": 0.002, "prompt_tokens": None},
+    }
+    client_cost = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=cost_only_payload)))
+    p_cost = OpenAIProvider(api_key="key", http_client=client_cost)
+
+    async def _run():
+        resp_flat = await p_flat.complete([LLMMessage(role="user", content="1")])
+        assert resp_flat.usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+        resp_none = await p_none.complete([LLMMessage(role="user", content="2")])
+        assert resp_none.usage is None
+
+        resp_cost = await p_cost.complete([LLMMessage(role="user", content="3")])
+        assert resp_cost.usage is None
+        assert resp_cost.raw == cost_only_payload
+
+    asyncio.run(_run())
+
