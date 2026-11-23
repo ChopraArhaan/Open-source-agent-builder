@@ -103,7 +103,7 @@ OPENAI_API_KEY=your_openai_api_key_here
 ### 3. Start the FastAPI Server
 
 ```bash
-uvicorn src.agent_builder.api.app:app --reload --port 8000
+uvicorn agent_builder.api.app:app --reload --port 8000
 ```
 
 ---
@@ -145,7 +145,7 @@ Declare tools using standard Pydantic models. Sync and async functions are wrapp
 
 ```python
 from pydantic import BaseModel, Field
-from src.agent_builder.tools import register_tool
+from agent_builder.tools import register_tool
 
 class CalculatorInput(BaseModel):
     expression: str = Field(description="Mathematical expression (e.g. '2 + 2 * 3')")
@@ -295,7 +295,7 @@ Open Source Agent Builder includes a non-intrusive observer system that computes
 Use `setup_logger` to configure logging without touching the root logger:
 
 ```python
-from src.agent_builder.observability import setup_logger
+from agent_builder.observability import setup_logger
 
 # Configure JSON formatting to stdout
 logger = setup_logger(level="INFO", json=True, log_content=False)
@@ -311,8 +311,8 @@ logger = setup_logger(level="INFO", json=True, log_content=False)
 Wrap any event generator with `trace_stream`:
 
 ```python
-from src.agent_builder.engine.react import ReActEngine
-from src.agent_builder.observability import ExecutionTracer, trace_stream
+from agent_builder.engine.react import ReActEngine
+from agent_builder.observability import ExecutionTracer, trace_stream
 
 tracer = ExecutionTracer(agent="math-tutor")
 
@@ -373,6 +373,15 @@ tracer.to_json(path="traces/math_run.json")
 > **Telemetry Caveats**:
 > - **Tool Duration**: Prefers `ToolResult.duration_ms` when recorded by the tool runner. Fallback measures time between `tool_call` and `observation` as seen by the observer (which includes event dispatch latency in streaming mode).
 > - **Token Usage**: Summed only when reported by the LLM provider in metadata (`usage`). If not reported, token usage is `null` (never `0`) so missing telemetry is not mistaken for a free run.
+
+---
+
+## ⚠️ Known Limitations
+
+- **Key-based redaction only**: Sensitive data masking in structured logs inspects dictionary keys matching sensitive patterns (`api_key`, `token`, `password`, `secret`, `authorization`, `cookie`). It does not parse or inspect unstructured free text or raw strings for secrets.
+- **Traces contain unredacted arguments and outputs**: Traces include raw tool arguments and outputs and are not redacted, so don't share traces from sensitive runs.
+- **Provider-dependent token metrics**: Token usage counts are accumulated strictly when the LLM provider reports them in `usage` metadata. If a provider omits token usage or returns `None`, metrics report `null` rather than `0` to prevent false assumptions of zero-cost runs.
+- **Trace tool durations may include client latency**: While `ToolResult.duration_ms` is prioritized for precise tool execution timing, observer fallback durations (measured from `tool_call` to `observation` events) can include SSE event streaming latency and client consumer processing time.
 
 ---
 

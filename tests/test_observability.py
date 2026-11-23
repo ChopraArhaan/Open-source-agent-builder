@@ -10,6 +10,7 @@ from pathlib import Path
 from src.agent_builder.engine.react import ReActEngine
 from src.agent_builder.llm.fake import FakeLLMProvider
 from src.agent_builder.models import (
+    LLMResponse,
     RunEvent,
     ToolCall,
     ToolResult,
@@ -360,3 +361,107 @@ def test_end_to_end_react_engine_with_trace_stream():
 
     asyncio.run(_run_loop())
     assert tracer_loop.status == "max_iterations"
+
+
+def test_engine_token_usage_forwarded_to_tracer():
+    """Verify scripted LLMResponse usage is attached to events and aggregated by ExecutionTracer."""
+    registry = ToolRegistry()
+    register_builtin_tools(registry)
+
+    # Canned responses with explicit token usage
+    step1_response = LLMResponse(
+        content="I will compute 15 * 3",
+        tool_calls=[ToolCall(name="calculator", arguments={"expression": "15 * 3"})],
+        usage={"prompt_tokens": 40, "completion_tokens": 15, "total_tokens": 55},
+    )
+    step2_response = LLMResponse(
+        content="The answer is 45.",
+        tool_calls=[],
+        usage={"prompt_tokens": 60, "completion_tokens": 10, "total_tokens": 70},
+    )
+
+    fake_llm = FakeLLMProvider(responses=[step1_response, step2_response])
+    engine = ReActEngine(llm=fake_llm, tools=registry)
+    tracer = ExecutionTracer(agent="usage-bot")
+
+    async def _run():
+        events = []
+        async for ev in trace_stream(engine.run_stream("What is 15 * 3?"), tracer):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(_run())
+
+    # Check event metadata
+    # Step 1 thought event must carry step 1 usage
+    assert events[0].type == "thought"
+    assert events[0].metadata.get("usage") == {"prompt_tokens": 40, "completion_tokens": 15, "total_tokens": 55}
+
+    # Step 1 tool_call should not duplicate usage
+    assert events[1].type == "tool_call"
+    assert "usage" not in events[1].metadata
+
+    # Step 2 final event must carry step 2 usage
+    assert events[3].type == "final"
+    assert events[3].metadata.get("usage") == {"prompt_tokens": 60, "completion_tokens": 10, "total_tokens": 70}
+
+    # Verify tracer aggregated token_usage is non-None and exact
+    assert tracer.token_usage is not None
+    assert tracer.token_usage == {
+        "prompt_tokens": 100,  # 40 + 60
+        "completion_tokens": 25,  # 15 + 10
+        "total_tokens": 125,  # 55 + 70
+    }
+
+    metrics = tracer.to_dict()["metrics"]
+    assert metrics["token_usage"] == {
+        "prompt_tokens": 100,
+        "completion_tokens": 25,
+        "total_tokens": 125,
+    }
+
+
+def test_engine_token_usage_without_thought_forwarded_to_tracer():
+    """Verify tool_call event carries usage when LLM emits tool call without thought content."""
+    registry = ToolRegistry()
+    register_builtin_tools(registry)
+
+    # Tool call with content=None
+    step1_response = LLMResponse(
+        content=None,
+        tool_calls=[ToolCall(name="calculator", arguments={"expression": "7 + 8"})],
+        usage={"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35},
+    )
+    step2_response = LLMResponse(
+        content="Result is 15.",
+        tool_calls=[],
+        usage={"prompt_tokens": 35, "completion_tokens": 5, "total_tokens": 40},
+    )
+
+    fake_llm = FakeLLMProvider(responses=[step1_response, step2_response])
+    engine = ReActEngine(llm=fake_llm, tools=registry)
+    tracer = ExecutionTracer(agent="no-thought-bot")
+
+    async def _run():
+        events = []
+        async for ev in trace_stream(engine.run_stream("Compute 7+8"), tracer):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(_run())
+
+    # Step 1 tool_call event carries step 1 usage since thought was not emitted
+    assert events[0].type == "tool_call"
+    assert events[0].metadata.get("usage") == {"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35}
+
+    # Step 2 final event carries step 2 usage
+    assert events[2].type == "final"
+    assert events[2].metadata.get("usage") == {"prompt_tokens": 35, "completion_tokens": 5, "total_tokens": 40}
+
+    assert tracer.token_usage == {
+        "prompt_tokens": 60,
+        "completion_tokens": 15,
+        "total_tokens": 75,
+    }
+
+

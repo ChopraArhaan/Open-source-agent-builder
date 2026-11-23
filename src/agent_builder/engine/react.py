@@ -111,12 +111,18 @@ class ReActEngine:
                 return
 
             # 3. Check for intermediate thought reasoning
+            usage_meta = {"usage": response.usage} if response.usage else {}
+            usage_attached = False
+
             if response.content and response.tool_calls:
                 yield RunEvent(
                     type="thought",
                     step=step,
                     content=response.content,
+                    metadata=dict(usage_meta) if not usage_attached else {},
                 )
+                if usage_meta:
+                    usage_attached = True
 
             # 4. Check for final answer (no tools requested)
             if not response.tool_calls:
@@ -126,6 +132,7 @@ class ReActEngine:
                     type="final",
                     step=step,
                     content=final_content,
+                    metadata=dict(usage_meta) if not usage_attached else {},
                 )
                 return
 
@@ -159,11 +166,16 @@ class ReActEngine:
                     )
                     return
 
-                # Emit tool call event
+                # Emit tool call event (attach usage if not yet attached to thought)
+                call_meta = dict(usage_meta) if not usage_attached else {}
+                if usage_meta:
+                    usage_attached = True
+
                 yield RunEvent(
                     type="tool_call",
                     step=step,
                     tool_call=tool_call,
+                    metadata=call_meta,
                 )
 
                 # Execute tool safely via registry (never raises)
