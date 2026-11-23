@@ -214,3 +214,138 @@ def test_stream_unknown_agent_returns_404(test_setup):
         json={"prompt": "Hello"},
     )
     assert resp.status_code == 404
+
+
+def test_api_v1_prefix_endpoints(test_setup):
+    """Verify /api/v1 prefix routes serve agents, tools, run, and stream."""
+    client, fake_llm, _, _ = test_setup
+    fake_llm.set_responses(["v1 response"])
+
+    # 1. /api/v1/health
+    r_health = client.get("/api/v1/health")
+    assert r_health.status_code == 200
+    assert r_health.json()["status"] == "ok"
+
+    # 2. /api/v1/agents
+    r_agents = client.get("/api/v1/agents")
+    assert r_agents.status_code == 200
+    assert len(r_agents.json()) == 2
+
+    # 3. /api/v1/agents/{name}
+    r_agent = client.get("/api/v1/agents/math-agent")
+    assert r_agent.status_code == 200
+    assert r_agent.json()["name"] == "math-agent"
+
+    # 4. /api/v1/tools
+    r_tools = client.get("/api/v1/tools")
+    assert r_tools.status_code == 200
+    assert any(t["name"] == "calculator" for t in r_tools.json())
+
+    # 5. /api/v1/agents/{name}/run
+    r_run = client.post("/api/v1/agents/math-agent/run", json={"prompt": "Calculate 1+1"})
+    assert r_run.status_code == 200
+    assert r_run.json()["final_answer"] == "v1 response"
+
+
+def test_auth_disabled_by_default(test_setup):
+    """Verify all endpoints are open when api_key is None / unset."""
+    client, _, _, _ = test_setup
+    assert client.get("/agents").status_code == 200
+    assert client.get("/tools").status_code == 200
+    assert client.get("/health").status_code == 200
+
+
+def test_auth_enforcement_and_credentials():
+    """Verify API-key authentication behavior on protected endpoints and health exemption."""
+    configs = {
+        "dummy": AgentConfig(
+            name="dummy",
+            llm=LLMConfig(provider="fake", model="fake-model"),
+            system_prompt="Dummy",
+        )
+    }
+    app = create_app(
+        configs=configs,
+        api_key="my-secret-key-123",
+        llm_override=FakeLLMProvider(responses=["Done"]),
+    )
+    client = TestClient(app)
+
+    # 1. /health and /api/v1/health stay open without any key
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/v1/health").status_code == 200
+
+    # 2. Missing key returns 401
+    r_missing = client.get("/agents")
+    assert r_missing.status_code == 401
+    assert r_missing.json()["detail"] == "Invalid or missing API key"
+
+    assert client.get("/tools").status_code == 401
+    assert client.post("/agents/dummy/run", json={"prompt": "hi"}).status_code == 401
+
+    # 3. Wrong key returns 401
+    assert client.get("/agents", headers={"X-API-Key": "wrong-key"}).status_code == 401
+    assert client.get("/agents", headers={"Authorization": "Bearer wrong-key"}).status_code == 401
+
+    # 4. Query string is NEVER accepted (must be 401)
+    r_query = client.get("/agents?api_key=my-secret-key-123")
+    assert r_query.status_code == 401
+
+    r_query2 = client.get("/agents?token=my-secret-key-123")
+    assert r_query2.status_code == 401
+
+    # 5. Valid X-API-Key header returns 200
+    r_header = client.get("/agents", headers={"X-API-Key": "my-secret-key-123"})
+    assert r_header.status_code == 200
+    assert len(r_header.json()) == 1
+
+    # 6. Valid Authorization Bearer header returns 200
+    r_bearer = client.get("/agents", headers={"Authorization": "Bearer my-secret-key-123"})
+    assert r_bearer.status_code == 200
+    assert len(r_bearer.json()) == 1
+
+    # 7. Check /api/v1 routes with valid auth
+    assert client.get("/api/v1/agents", headers={"X-API-Key": "my-secret-key-123"}).status_code == 200
+    assert client.get("/api/v1/tools", headers={"X-API-Key": "my-secret-key-123"}).status_code == 200
+
+
+def test_cors_behavior_and_wildcard_credentials():
+    """Verify CORS configuration defaults to no allowed origins and never pairs '*' with credentials."""
+    # 1. Default: no allowed origins
+    app_default = create_app()
+    client_default = TestClient(app_default)
+    resp_def = client_default.options(
+        "/health",
+        headers={
+            "Origin": "https://random.site.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp_def.headers.get("access-control-allow-origin") is None
+
+    # 2. Configured origins: specific allowed origin allows credentials
+    app_custom = create_app(cors_origins="https://dashboard.example.com, https://admin.example.com")
+    client_custom = TestClient(app_custom)
+    resp_custom = client_custom.options(
+        "/health",
+        headers={
+            "Origin": "https://dashboard.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp_custom.headers.get("access-control-allow-origin") == "https://dashboard.example.com"
+    assert resp_custom.headers.get("access-control-allow-credentials") == "true"
+
+    # 3. Wildcard origin: NEVER allow credentials
+    app_wildcard = create_app(cors_origins="*")
+    client_wildcard = TestClient(app_wildcard)
+    resp_wild = client_wildcard.options(
+        "/health",
+        headers={
+            "Origin": "https://any.site.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp_wild.headers.get("access-control-allow-origin") == "*"
+    assert resp_wild.headers.get("access-control-allow-credentials") is None
+
