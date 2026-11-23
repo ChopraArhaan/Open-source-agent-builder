@@ -379,6 +379,7 @@ tracer.to_json(path="traces/math_run.json")
 ## ⚠️ Known Limitations
 
 - **Key-based redaction only**: Sensitive data masking in structured logs inspects dictionary keys matching sensitive patterns (`api_key`, `token`, `password`, `secret`, `authorization`, `cookie`). It does not parse or inspect unstructured free text or raw strings for secrets.
+- **Traces contain unredacted arguments and outputs**: Traces include raw tool arguments and outputs and are not redacted, so don't share traces from sensitive runs.
 - **Provider-dependent token metrics**: Token usage counts are accumulated strictly when the LLM provider reports them in `usage` metadata. If a provider omits token usage or returns `None`, metrics report `null` rather than `0` to prevent false assumptions of zero-cost runs.
 - **Trace tool durations may include client latency**: While `ToolResult.duration_ms` is prioritized for precise tool execution timing, observer fallback durations (measured from `tool_call` to `observation` events) can include SSE event streaming latency and client consumer processing time.
 

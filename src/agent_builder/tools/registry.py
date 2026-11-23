@@ -128,6 +128,7 @@ class ToolRegistry:
         start_time = time.perf_counter()
 
         # Normalize invocation parameters
+        raw_args: dict[str, Any] | str
         if isinstance(name_or_call, ToolCall):
             tool_name = name_or_call.name
             raw_args = name_or_call.arguments

@@ -3,14 +3,16 @@
 import ast
 import math
 import operator
+from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from src.agent_builder.tools.registry import ToolRegistry
 
 # Safe operators allowed in the AST calculator
-_SAFE_OPERATORS = {
+_SAFE_OPERATORS: dict[type[ast.AST], Callable[..., Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -23,7 +25,7 @@ _SAFE_OPERATORS = {
 }
 
 # Whitelist of safe math functions
-_SAFE_FUNCTIONS = {
+_SAFE_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "abs": abs,
     "round": round,
     "min": min,
@@ -54,19 +56,19 @@ def _eval_ast_node(node: ast.AST) -> int | float:
         return _SAFE_OPERATORS[op_type](operand)
 
     if isinstance(node, ast.BinOp):
-        op_type = type(node.op)
-        if op_type not in _SAFE_OPERATORS:
-            raise ValueError(f"Unsupported binary operator: {op_type.__name__}")
+        bin_op_type = type(node.op)
+        if bin_op_type not in _SAFE_OPERATORS:
+            raise ValueError(f"Unsupported binary operator: {bin_op_type.__name__}")
 
         left = _eval_ast_node(node.left)
         right = _eval_ast_node(node.right)
 
         # Division by zero check
-        if op_type in (ast.Div, ast.FloorDiv, ast.Mod) and right == 0:
+        if bin_op_type in (ast.Div, ast.FloorDiv, ast.Mod) and right == 0:
             raise ValueError("Division by zero")
 
         # Exponentiation hardening against DoS / memory exhaustion
-        if op_type is ast.Pow:
+        if bin_op_type is ast.Pow:
             if abs(left) > MAX_BASE_VALUE:
                 raise ValueError(
                     f"Base {left} exceeds maximum allowed base limit of {MAX_BASE_VALUE}"
@@ -75,12 +77,12 @@ def _eval_ast_node(node: ast.AST) -> int | float:
                 raise ValueError(
                     f"Exponent {right} exceeds maximum allowed exponent limit of {MAX_EXPONENT_VALUE}"
                 )
-            result = _SAFE_OPERATORS[op_type](left, right)
+            result = _SAFE_OPERATORS[bin_op_type](left, right)
             if isinstance(result, complex):
                 raise ValueError("Complex numbers are not supported")
             return result
 
-        return _SAFE_OPERATORS[op_type](left, right)
+        return _SAFE_OPERATORS[bin_op_type](left, right)
 
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in _SAFE_FUNCTIONS:
@@ -171,7 +173,7 @@ class MockSearchInput(BaseModel):
 async def mock_search(query: str, max_results: int = 3) -> list[dict[str, str]]:
     """Deterministic mock search engine for testing and local exploration."""
     lowered = query.lower()
-    canned_database = [
+    canned_database: list[dict[str, Any]] = [
         {
             "title": "Open Source Agent Builder Guide",
             "snippet": "A lightweight, transparent engine for autonomous AI agents built with Python and FastAPI.",
@@ -200,11 +202,13 @@ async def mock_search(query: str, max_results: int = 3) -> list[dict[str, str]]:
 
     matched: list[dict[str, str]] = []
     for entry in canned_database:
-        if any(kw in lowered for kw in entry["keywords"]) or any(word in entry["title"].lower() for word in lowered.split()):
+        entry_title = str(entry["title"])
+        entry_keywords: list[str] = entry.get("keywords", [])
+        if any(kw in lowered for kw in entry_keywords) or any(word in entry_title.lower() for word in lowered.split()):
             matched.append({
-                "title": entry["title"],
-                "snippet": entry["snippet"],
-                "url": entry["url"],
+                "title": entry_title,
+                "snippet": str(entry["snippet"]),
+                "url": str(entry["url"]),
             })
 
     if not matched:
