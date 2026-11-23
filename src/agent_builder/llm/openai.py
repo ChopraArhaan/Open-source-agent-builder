@@ -1,6 +1,7 @@
 """OpenAI-compatible LLM provider using pure httpx."""
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -30,8 +31,9 @@ class OpenAIProvider(BaseLLMProvider):
             timeout_seconds=timeout_seconds,
             **kwargs,
         )
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key if api_key is not None else os.getenv("OPENAI_API_KEY")
+        effective_base = base_url if base_url != "https://api.openai.com/v1" else (os.getenv("OPENAI_BASE_URL") or base_url)
+        self.base_url = effective_base.rstrip("/")
         self._http_client = http_client
 
     @property
