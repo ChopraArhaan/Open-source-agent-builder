@@ -7,8 +7,11 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
+
 from src.agent_builder.engine.react import ReActEngine
 from src.agent_builder.llm.fake import FakeLLMProvider
+from src.agent_builder.llm.openai import OpenAIProvider
 from src.agent_builder.models import (
     LLMResponse,
     RunEvent,
@@ -463,5 +466,66 @@ def test_engine_token_usage_without_thought_forwarded_to_tracer():
         "completion_tokens": 15,
         "total_tokens": 75,
     }
+
+
+def test_tracer_with_openrouter_payload_shape():
+    """Verify ExecutionTracer correctly reports token usage when OpenAIProvider receives OpenRouter payload."""
+    openrouter_payload = {
+        "id": "gen-openrouter-test",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "The answer is 42.",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 55,
+            "completion_tokens": 12,
+            "total_tokens": 67,
+            "prompt_tokens_details": {"cached_tokens": 20},
+            "completion_tokens_details": {"reasoning_tokens": 0},
+            "cost_details": {"upstream_inference_cost": 0.00025},
+            "total_cost": 0.00030,
+        },
+    }
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=openrouter_payload)))
+    llm = OpenAIProvider(api_key="mock-key", http_client=mock_client)
+    engine = ReActEngine(llm=llm)
+    tracer = ExecutionTracer(agent="openrouter-agent")
+
+    async def _run():
+        events = []
+        async for ev in trace_stream(engine.run_stream("What is 6 * 7?"), tracer):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(_run())
+    assert len(events) == 1
+    assert events[0].type == "final"
+    assert events[0].content == "The answer is 42."
+    assert events[0].metadata.get("usage") == {
+        "prompt_tokens": 55,
+        "completion_tokens": 12,
+        "total_tokens": 67,
+    }
+
+    assert tracer.status == "final"
+    assert tracer.token_usage == {
+        "prompt_tokens": 55,
+        "completion_tokens": 12,
+        "total_tokens": 67,
+    }
+    metrics = tracer.to_dict()["metrics"]
+    assert metrics["token_usage"] == {
+        "prompt_tokens": 55,
+        "completion_tokens": 12,
+        "total_tokens": 67,
+    }
+
 
 

@@ -84,7 +84,18 @@ class OpenAIProvider(BaseLLMProvider):
         message = choice.get("message", {})
         content = message.get("content")
         finish_reason = choice.get("finish_reason")
-        usage = data.get("usage")
+
+        # Normalize usage: extract only valid integer token metrics
+        raw_usage = data.get("usage")
+        normalized_usage: dict[str, int] | None = None
+        if isinstance(raw_usage, dict):
+            usage_counts: dict[str, int] = {}
+            for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                val = raw_usage.get(field)
+                if isinstance(val, int) and not isinstance(val, bool):
+                    usage_counts[field] = val
+            if usage_counts:
+                normalized_usage = usage_counts
 
         tool_calls: list[ToolCall] = []
         raw_tool_calls = message.get("tool_calls") or []
@@ -114,7 +125,7 @@ class OpenAIProvider(BaseLLMProvider):
             content=content,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
-            usage=usage,
+            usage=normalized_usage,
             raw=data,
         )
 
