@@ -309,6 +309,22 @@ def test_auth_enforcement_and_credentials():
     assert client.get("/api/v1/tools", headers={"X-API-Key": "my-secret-key-123"}).status_code == 200
 
 
+def test_docs_and_openapi_stay_open_with_auth():
+    """Verify OpenAPI schema and docs (/openapi.json, /docs, /redoc) remain open when auth is enabled."""
+    app = create_app(api_key="secret-token-xyz")
+    client = TestClient(app)
+
+    # Core protected endpoints are blocked
+    assert client.get("/agents").status_code == 401
+    assert client.get("/tools").status_code == 401
+
+    # Documentation and schema endpoints remain accessible without auth
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/docs").status_code == 200
+    assert client.get("/redoc").status_code == 200
+
+
+
 def test_cors_behavior_and_wildcard_credentials():
     """Verify CORS configuration defaults to no allowed origins and never pairs '*' with credentials."""
     # 1. Default: no allowed origins

@@ -385,6 +385,13 @@ tracer.to_json(path="traces/math_run.json")
 
 ---
 
+## 🚀 Deployment
+
+- **Reverse Proxy & Rate Limiting**: In production, always deploy behind a reverse proxy (e.g., Caddy, Nginx, or Traefik) that handles TLS termination, request throttling, and rate limiting in front of Uvicorn.
+- **Docker Container**: A hardened Dockerfile based on `python:3.11-slim` running as an unprivileged user (`appuser`) is provided. Note that the Docker image has not been build-tested yet in local environments. Supply runtime secrets via `--env-file .env`.
+
+---
+
 ## 🛣️ Roadmap
 
 - [x] Architecture design & project spec
