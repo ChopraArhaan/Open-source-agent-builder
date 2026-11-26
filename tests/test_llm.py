@@ -7,7 +7,9 @@ import httpx
 import pytest
 
 from src.agent_builder.llm import (
+    AnthropicProvider,
     FakeLLMProvider,
+    GeminiProvider,
     OpenAIProvider,
     create_llm_provider,
 )
@@ -251,6 +253,14 @@ def test_create_llm_provider_factory():
     assert isinstance(p_openai, OpenAIProvider)
     assert p_openai.model == "gpt-4o"
     assert p_openai.provider_name == "openai"
+
+    p_anthropic = create_llm_provider("anthropic", model="claude-3-5-haiku-20241022", api_key="test-key")
+    assert isinstance(p_anthropic, AnthropicProvider)
+    assert p_anthropic.provider_name == "anthropic"
+
+    p_gemini = create_llm_provider("gemini", model="gemini-2.0-flash", api_key="test-key")
+    assert isinstance(p_gemini, GeminiProvider)
+    assert p_gemini.provider_name == "gemini"
 
     p_fake = create_llm_provider("fake", model="fake-model")
     assert isinstance(p_fake, FakeLLMProvider)

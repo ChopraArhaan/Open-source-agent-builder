@@ -81,10 +81,15 @@ open-source-agent-builder/
 git clone https://github.com/ChopraArhaan/Open-source-agent-builder.git
 cd Open-source-agent-builder
 
-# Install package with dependencies
+# Install package with dependencies (core OpenAI & Fake providers)
 pip install -e .
 
-# Or install with test dependencies
+# Or install with native provider SDKs
+pip install -e ".[anthropic]"       # Native Anthropic Claude support
+pip install -e ".[gemini]"          # Native Google Gemini support
+pip install -e ".[all-providers]"   # All provider SDKs
+
+# Or install with development and test dependencies
 pip install -e ".[dev]"
 ```
 
@@ -98,12 +103,84 @@ cp .env.example .env
 
 ```ini
 OPENAI_API_KEY=your_openai_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ### 3. Start the FastAPI Server
 
 ```bash
 uvicorn agent_builder.api.app:app --reload --port 8000
+```
+
+---
+
+## 🔌 Supported LLM Providers
+
+Open Source Agent Builder provides a standardized multi-provider gateway supporting native tool calling, token usage telemetry, and automatic exponential backoff with jitter across top LLM providers:
+
+| Provider | Provider String | Install Extra | Required Environment Variable | Default / Recommended Models |
+|---|---|---|---|---|
+| **OpenAI** | `openai` | *(Included in core)* | `OPENAI_API_KEY` | `gpt-4o-mini`, `gpt-4o` |
+| **Anthropic** | `anthropic` | `agent-builder[anthropic]` | `ANTHROPIC_API_KEY` | `claude-3-5-haiku-20241022`, `claude-3-7-sonnet-20250219` |
+| **Google Gemini** | `gemini` | `agent-builder[gemini]` | `GEMINI_API_KEY` | `gemini-2.0-flash`, `gemini-2.5-flash` |
+| **Offline Fake** | `fake` | *(Included in core)* | *None* | `fake-model` |
+
+### Provider Error Handling & Retry Policies
+- **Transient Failures (Retried)**: Rate limits (HTTP 429), server errors (HTTP 500, 502, 503, 504), network dropouts, and timeouts are automatically retried with exponential backoff and randomized jitter (`max_retries=3`, `initial_delay=1.0s`, `max_delay=60.0s`).
+- **Permanent Client Errors (Fast Fail)**: Invalid authentication keys (HTTP 401), permission errors (HTTP 403), and bad requests (HTTP 400) immediately abort without retry.
+- **Secret Safety**: API keys are never exposed in `__repr__`, debug logs, or exception traces.
+
+### Example: Anthropic Claude Agent (`agents/claude_analyst.yaml`)
+
+```yaml
+name: "claude-analyst"
+version: "1.0.0"
+description: "Data analysis agent powered by Anthropic Claude Messages API."
+
+llm:
+  provider: "anthropic"
+  model: "claude-3-5-haiku-20241022"
+  temperature: 0.2
+  max_tokens: 4096
+
+system_prompt: |
+  You are an analytical assistant. Perform precise calculations using available tools
+  and provide concise, well-structured summaries.
+
+tools:
+  - calculator
+
+execution:
+  max_iterations: 10
+  timeout_seconds: 60.0
+  max_repeats: 3
+```
+
+### Example: Google Gemini Agent (`agents/gemini_assistant.yaml`)
+
+```yaml
+name: "gemini-assistant"
+version: "1.0.0"
+description: "General assistant powered by native Google Gemini SDK."
+
+llm:
+  provider: "gemini"
+  model: "gemini-2.0-flash"
+  temperature: 0.2
+  max_tokens: 2048
+
+system_prompt: |
+  You are a helpful assistant powered by Google Gemini. Use tools when required
+  to evaluate expressions accurately.
+
+tools:
+  - calculator
+
+execution:
+  max_iterations: 10
+  timeout_seconds: 60.0
+  max_repeats: 3
 ```
 
 ---
@@ -394,7 +471,7 @@ tracer.to_json(path="traces/math_run.json")
 - [x] Declarative YAML parser & validator (Phase 4)
 - [x] FastAPI service with REST & SSE endpoints (Phase 5)
 - [x] Observability, execution tracing & structured logging (Phase 6)
-- [ ] Multi-provider expansions (Anthropic, Gemini native SDKs)
+- [x] Multi-provider expansions (Anthropic, Gemini native SDKs)
 - [ ] Persistent agent memory & conversation session store
 - [ ] Interactive Web UI / Playground
 
