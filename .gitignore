@@ -49,3 +49,10 @@ htmlcov/
 *.log
 logs/
 traces/
+
+# Databases
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
