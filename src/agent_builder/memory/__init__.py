@@ -14,6 +14,7 @@ from src.agent_builder.memory.models import (
 )
 from src.agent_builder.memory.sqlite_store import SQLiteSessionStore
 from src.agent_builder.memory.store import InMemorySessionStore, SessionStore
+from src.agent_builder.memory.window import select_history, to_llm_messages
 
 __all__ = [
     "DEFAULT_MAX_MESSAGES_PER_SESSION",
@@ -29,4 +30,6 @@ __all__ = [
     "SessionStoreError",
     "SessionValidationError",
     "StoredMessage",
+    "select_history",
+    "to_llm_messages",
 ]
