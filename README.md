@@ -45,7 +45,14 @@ open-source-agent-builder/
 │   ├── llm/                      # Unified LLM provider interface
 │   │   ├── base.py               # BaseLLMProvider abstract interface
 │   │   ├── openai.py             # OpenAI-compatible httpx provider
+│   │   ├── anthropic_provider.py # Native Anthropic Messages API provider
+│   │   ├── gemini_provider.py    # Native Google Gemini provider
 │   │   └── fake.py               # Scriptable offline test provider
+│   ├── memory/                   # Persistent session stores & history windowing
+│   │   ├── models.py             # Session, StoredMessage & error hierarchy
+│   │   ├── store.py              # SessionStore ABC & InMemorySessionStore
+│   │   ├── sqlite_store.py       # SQLiteSessionStore (stdlib sqlite3, WAL)
+│   │   └── window.py             # Pair-safe history windowing (select_history)
 │   ├── engine/                   # ReAct execution core
 │   │   └── react.py              # Raw ReAct execution loop & RunEvent stream
 │   ├── config/                   # Declarative configuration system
@@ -60,9 +67,16 @@ open-source-agent-builder/
 ├── tests/                        # Comprehensive unit & integration tests
 │   ├── test_tools.py
 │   ├── test_llm.py
+│   ├── test_llm_anthropic.py
+│   ├── test_llm_gemini.py
+│   ├── test_llm_contract.py
 │   ├── test_engine.py
 │   ├── test_config.py
 │   ├── test_api.py
+│   ├── test_api_sessions.py
+│   ├── test_memory_contract.py
+│   ├── test_memory_sqlite.py
+│   ├── test_memory_window.py
 │   └── test_observability.py
 ├── .env.example                  # Environment variable template
 ├── pyproject.toml                # Project metadata & dependencies
@@ -453,6 +467,103 @@ tracer.to_json(path="traces/math_run.json")
 
 ---
 
+## 🧠 Sessions & Persistent Memory
+
+Open Source Agent Builder supports optional multi-turn conversation sessions backed by SQLite (with WAL mode) or an in-memory store for testing.
+
+### Design Principles
+- **Stateless by default**: Calling `/agents/{name}/run` or `/agents/{name}/stream` without `session_id` remains completely stateless and persists nothing.
+- **Clean turn history**: Only `user` prompts and `final` `assistant` answers are stored. System prompts come from the agent YAML config, and internal ReAct scratchpad events (`thought`, `tool_call`, `observation`) are excluded.
+- **Crash & cancel safety**: A turn (`user` + `assistant`) is appended in one atomic transaction **only after** execution produces a `final` event. Errors or mid-stream client disconnects persist nothing.
+- **Per-session serialization**: Concurrent requests targeting the same `session_id` are serialized via reference-counted per-session async locks; requests on different sessions run in parallel.
+
+### Session API Routes
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/sessions` | Create a new session bound to an agent (`201 Created`) |
+| `GET` | `/sessions` | List sessions (`?agent=...&limit=50&offset=0`) |
+| `GET` | `/sessions/{session_id}` | Fetch a session with its ordered messages |
+| `DELETE` | `/sessions/{session_id}` | Delete a session and cascade-delete its messages (`204 No Content`) |
+
+Passing `session_id` in `POST /agents/{name}/run` or `POST /agents/{name}/stream` loads windowed history into the engine and persists the completed turn. Unknown `session_id`s return `404`, and mismatched agent names return `409 Conflict`.
+
+### Multi-Turn Examples
+
+#### 1. cURL
+
+```bash
+# 1. Create a session bound to math-tutor
+SESSION_ID=$(curl -s -X POST "http://localhost:8000/sessions" \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "math-tutor", "metadata": {"channel": "cli"}}' \
+  | python -c "import sys, json; print(json.load(sys.stdin)['session_id'])")
+
+# 2. Turn 1
+curl -s -X POST "http://localhost:8000/agents/math-tutor/run" \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"What is 12 * 8?\", \"session_id\": \"$SESSION_ID\"}"
+
+# 3. Turn 2 (receives Turn 1 context automatically)
+curl -s -X POST "http://localhost:8000/agents/math-tutor/run" \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"Add 4 to that result.\", \"session_id\": \"$SESSION_ID\"}"
+
+# 4. Inspect persisted session
+curl -s "http://localhost:8000/sessions/$SESSION_ID"
+```
+
+#### 2. Python (`httpx`)
+
+```python
+import httpx
+
+with httpx.Client(base_url="http://localhost:8000") as client:
+    # 1. Create session
+    session = client.post(
+        "/sessions",
+        json={"agent": "math-tutor", "metadata": {"source": "python"}},
+    ).json()
+    session_id = session["session_id"]
+
+    # 2. Run multi-turn conversation
+    r1 = client.post(
+        "/agents/math-tutor/run",
+        json={"prompt": "What is 12 * 8?", "session_id": session_id},
+    ).json()
+    print("Turn 1:", r1["final_answer"])
+
+    r2 = client.post(
+        "/agents/math-tutor/run",
+        json={"prompt": "Add 4 to that result.", "session_id": session_id},
+    ).json()
+    print("Turn 2:", r2["final_answer"])
+
+    # 3. Fetch stored history
+    stored = client.get(f"/sessions/{session_id}").json()
+    print("Stored messages:", len(stored["messages"]))
+```
+
+### Configuration, Windowing & Retention
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `AGENT_BUILDER_DB_PATH` | `data/sessions.db` | SQLite database file path (or `:memory:`) |
+| `AGENT_BUILDER_SESSION_TTL_DAYS` | *(unset / off)* | If > 0, purges sessions older than N days on startup |
+| `AGENT_BUILDER_MAX_HISTORY_MESSAGES` | *(unset / unlimited)* | Max historical messages sent to the engine per run |
+| `AGENT_BUILDER_MAX_HISTORY_CHARS` | *(unset / unlimited)* | Max historical characters sent to the engine per run |
+
+- **History Windowing**: Full history always remains in the store. Before each run, `select_history()` selects the most recent complete `(user, assistant)` turns fitting within `max_messages` and `max_chars` without ever splitting a turn pair or starting with an `assistant` message.
+- **Session Limits**: Enforces default limits of `100,000` chars per message, `1,000` messages per session, and `16,384` bytes of JSON metadata.
+
+### Session Store Limitations
+- **Plaintext storage**: The SQLite database is unencrypted at rest (though newly created DB files are set to owner-only permissions where supported by the OS).
+- **Single-process only**: Designed for a single server process using SQLite WAL mode and in-process per-session async locks; not intended for multi-node horizontal scaling without an external database.
+- **No user auth on sessions**: `session_id` values are random UUIDv4 strings (unguessable, but not an authorization mechanism). Use `AGENT_BUILDER_API_KEY` to protect all `/sessions` and `/agents` routes.
+- **Character-based windowing**: `AGENT_BUILDER_MAX_HISTORY_CHARS` uses character counts as a lightweight proxy for LLM tokens.
+
+---
+
 ## ⚠️ Known Limitations
 
 - **Key-based redaction only**: Sensitive data masking in structured logs inspects dictionary keys matching sensitive patterns (`api_key`, `token`, `password`, `secret`, `authorization`, `cookie`). It does not parse or inspect unstructured free text or raw strings for secrets.
@@ -472,7 +583,7 @@ tracer.to_json(path="traces/math_run.json")
 - [x] FastAPI service with REST & SSE endpoints (Phase 5)
 - [x] Observability, execution tracing & structured logging (Phase 6)
 - [x] Multi-provider expansions (Anthropic, Gemini native SDKs)
-- [ ] Persistent agent memory & conversation session store
+- [x] Persistent agent memory & conversation session store
 - [ ] Interactive Web UI / Playground
 
 ---
