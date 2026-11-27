@@ -12,6 +12,7 @@ from src.agent_builder.memory.models import (
     SessionValidationError,
     StoredMessage,
 )
+from src.agent_builder.memory.sqlite_store import SQLiteSessionStore
 from src.agent_builder.memory.store import InMemorySessionStore, SessionStore
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "DEFAULT_MAX_MESSAGE_CHARS",
     "DEFAULT_MAX_METADATA_BYTES",
     "InMemorySessionStore",
+    "SQLiteSessionStore",
     "SchemaVersionError",
     "Session",
     "SessionLimitError",

@@ -16,6 +16,7 @@ from src.agent_builder.memory import (
     SessionNotFoundError,
     SessionStore,
     SessionValidationError,
+    SQLiteSessionStore,
     StoredMessage,
 )
 
@@ -49,8 +50,42 @@ def _make_in_memory(
     )
 
 
+def _make_sqlite_memory(
+    tmp_path: Path,
+    clock: Callable[[], datetime],
+    max_message_chars: int = 100_000,
+    max_messages_per_session: int = 1_000,
+    max_metadata_bytes: int = 16_384,
+) -> SessionStore:
+    return SQLiteSessionStore(
+        db_path=":memory:",
+        max_message_chars=max_message_chars,
+        max_messages_per_session=max_messages_per_session,
+        max_metadata_bytes=max_metadata_bytes,
+        clock=clock,
+    )
+
+
+def _make_sqlite_file(
+    tmp_path: Path,
+    clock: Callable[[], datetime],
+    max_message_chars: int = 100_000,
+    max_messages_per_session: int = 1_000,
+    max_metadata_bytes: int = 16_384,
+) -> SessionStore:
+    return SQLiteSessionStore(
+        db_path=tmp_path / "contract_sessions.db",
+        max_message_chars=max_message_chars,
+        max_messages_per_session=max_messages_per_session,
+        max_metadata_bytes=max_metadata_bytes,
+        clock=clock,
+    )
+
+
 STORE_FACTORIES = [
     pytest.param(_make_in_memory, id="in_memory"),
+    pytest.param(_make_sqlite_memory, id="sqlite_memory"),
+    pytest.param(_make_sqlite_file, id="sqlite_file"),
 ]
 
 
