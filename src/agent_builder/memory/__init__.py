@@ -12,12 +12,13 @@ from src.agent_builder.memory.models import (
     SessionValidationError,
     StoredMessage,
 )
-from src.agent_builder.memory.store import SessionStore
+from src.agent_builder.memory.store import InMemorySessionStore, SessionStore
 
 __all__ = [
     "DEFAULT_MAX_MESSAGES_PER_SESSION",
     "DEFAULT_MAX_MESSAGE_CHARS",
     "DEFAULT_MAX_METADATA_BYTES",
+    "InMemorySessionStore",
     "SchemaVersionError",
     "Session",
     "SessionLimitError",
