@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import secrets
 from collections.abc import AsyncGenerator
@@ -132,6 +133,23 @@ def _parse_optional_int_env(name: str) -> int | None:
     return val
 
 
+def _parse_optional_ttl_days(name: str = "AGENT_BUILDER_SESSION_TTL_DAYS") -> float | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        val = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid {name} value {raw!r}: expected a number of days"
+        ) from exc
+    if not math.isfinite(val):
+        raise ValueError(
+            f"Invalid {name} value {raw!r}: expected a finite number of days"
+        )
+    return val if val > 0 else None
+
+
 def create_app(
     agents_dir: str | Path | None = None,
     registry: ToolRegistry | None = None,
@@ -163,12 +181,10 @@ def create_app(
         if getattr(app_instance.state, "session_store", None) is None:
             app_instance.state.session_store = SQLiteSessionStore()
 
-        ttl_raw = os.getenv("AGENT_BUILDER_SESSION_TTL_DAYS")
-        if ttl_raw and ttl_raw.strip():
-            ttl_days = float(ttl_raw)
-            if ttl_days > 0:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
-                await app_instance.state.session_store.purge_older_than(cutoff)
+        ttl_days = _parse_optional_ttl_days("AGENT_BUILDER_SESSION_TTL_DAYS")
+        if ttl_days is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
+            await app_instance.state.session_store.purge_older_than(cutoff)
 
         try:
             yield

@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import sqlite3
-import stat
 import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -91,11 +90,16 @@ class SQLiteSessionStore(SessionStore):
         self._executor.submit(self._init_sync).result()
 
     def _init_sync(self) -> None:
-        is_new_file = False
         if not self.is_memory:
             path_obj = Path(self.db_path)
-            is_new_file = not path_obj.exists()
             path_obj.parent.mkdir(parents=True, exist_ok=True)
+            if not path_obj.exists():
+                try:
+                    fd = os.open(self.db_path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    os.close(fd)
 
         conn = sqlite3.connect(
             self.db_path,
@@ -113,11 +117,6 @@ class SQLiteSessionStore(SessionStore):
                     raise SessionStoreError(
                         f"Failed to enable WAL journal mode (got {mode!r})"
                     )
-                if is_new_file:
-                    try:
-                        os.chmod(self.db_path, stat.S_IRUSR | stat.S_IWUSR)
-                    except OSError:
-                        pass
 
             self._migrate_sync(conn)
         except Exception:

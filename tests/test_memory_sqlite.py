@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
+import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -183,3 +186,26 @@ def test_sqlite_concurrent_stores_with_busy_timeout(tmp_path: Path) -> None:
             await store_b.close()
 
     asyncio.run(_run())
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX file permission bits are not enforced on Windows",
+)
+def test_sqlite_new_file_permissions_owner_only_and_existing_unchanged(
+    tmp_path: Path,
+) -> None:
+    """New DB files are created with 0o600; pre-existing files keep their permissions."""
+    new_db = tmp_path / "new_secure.db"
+    store_new = SQLiteSessionStore(db_path=new_db)
+    asyncio.run(store_new.close())
+    assert stat.S_IMODE(os.stat(new_db).st_mode) == 0o600
+
+    existing_db = tmp_path / "existing.db"
+    fd = os.open(existing_db, os.O_CREAT | os.O_RDWR, 0o644)
+    os.close(fd)
+    os.chmod(existing_db, 0o644)
+
+    store_existing = SQLiteSessionStore(db_path=existing_db)
+    asyncio.run(store_existing.close())
+    assert stat.S_IMODE(os.stat(existing_db).st_mode) == 0o644

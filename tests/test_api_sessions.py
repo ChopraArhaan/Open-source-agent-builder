@@ -532,3 +532,47 @@ def test_session_message_size_limit_returns_422() -> None:
         json={"prompt": "This prompt exceeds ten characters", "session_id": sid},
     )
     assert resp.status_code == 422
+
+
+def test_ttl_env_invalid_raises_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid AGENT_BUILDER_SESSION_TTL_DAYS fails fast with a clear error."""
+    monkeypatch.setenv("AGENT_BUILDER_SESSION_TTL_DAYS", "abc")
+    app, _, _, _ = _make_app_and_client()
+    with (
+        pytest.raises(ValueError, match=r"AGENT_BUILDER_SESSION_TTL_DAYS.*'abc'"),
+        TestClient(app),
+    ):
+        pass
+
+
+@pytest.mark.parametrize(
+    ("ttl_value", "should_purge"),
+    [
+        ("1", True),
+        ("0", False),
+        ("-1", False),
+        (None, False),
+    ],
+)
+def test_ttl_env_valid_and_disabled_values(
+    monkeypatch: pytest.MonkeyPatch,
+    ttl_value: str | None,
+    should_purge: bool,
+) -> None:
+    """Verify valid TTL purges old sessions while 0, -1, and unset disable purging."""
+    from datetime import datetime, timezone
+
+    if ttl_value is None:
+        monkeypatch.delenv("AGENT_BUILDER_SESSION_TTL_DAYS", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_BUILDER_SESSION_TTL_DAYS", ttl_value)
+
+    current_time = datetime.now(timezone.utc) - timedelta(days=5)
+    store = InMemorySessionStore(clock=lambda: current_time)
+    old_session = asyncio.run(store.create_session(agent="math-agent"))
+
+    app, _, _, _ = _make_app_and_client(store=store)
+    with TestClient(app) as client:
+        resp = client.get(f"/sessions/{old_session.session_id}")
+        expected_status = 404 if should_purge else 200
+        assert resp.status_code == expected_status

@@ -559,8 +559,8 @@ with httpx.Client(base_url="http://localhost:8000") as client:
 ### Session Store Limitations
 - **Plaintext storage**: The SQLite database is unencrypted at rest (though newly created DB files are set to owner-only permissions where supported by the OS).
 - **Single-process only**: Designed for a single server process using SQLite WAL mode and in-process per-session async locks; not intended for multi-node horizontal scaling without an external database.
-- **No user auth on sessions**: `session_id` values are random UUIDv4 strings (unguessable, but not an authorization mechanism). Use `AGENT_BUILDER_API_KEY` to protect all `/sessions` and `/agents` routes.
-- **Character-based windowing**: `AGENT_BUILDER_MAX_HISTORY_CHARS` uses character counts as a lightweight proxy for LLM tokens.
+- **No authentication on sessions**: Sessions have no authentication (a `session_id` is an unguessable UUIDv4, but it is not access control).
+- **Character-based windowing**: History windowing (`AGENT_BUILDER_MAX_HISTORY_CHARS`) counts characters, not tokens.
 
 ---
 
